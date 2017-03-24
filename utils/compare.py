@@ -57,10 +57,13 @@ def read_lit_json(filename):
                 datarow[index] = test[name]
         data.append(datarow)
     index = pd.Index(testnames, name='Test')
-    return pd.DataFrame(data=data, index=index, columns=columns)
+    column_index = pd.Index(columns, name='metric')
+    return pd.DataFrame(data=data, index=index, columns=column_index)
 
 def read_report_simple_csv(filename):
-    return pd.read_csv(filename, na_values=['*'], index_col=0, header=0)
+    result = pd.read_csv(filename, na_values=['*'], index_col=0, header=0)
+    result.columns.name='metric'
+    return result
 
 def read(name):
     if name.endswith(".json"):
@@ -101,8 +104,20 @@ def readmulti(filenames):
     d = pd.concat(datasets, axis=0, names=['run'], keys=datasetnames)
     return d
 
-def add_diff_column(d, absolute_diff=False):
+def add_diff_columns(d, add_diff, add_delta):
     values = d.unstack(level=0)
+
+    # Pick new column names after unstack() to avoid the multiindex there
+    if len(d.index.levels[0]) > 1:
+        values.columns = d.index.levels[0].copy()
+    else:
+        values.columns = d.columns.copy()
+
+    if not add_diff and not add_delta:
+        return values
+
+    # It's a mixed set of things with diff/delta so remove the name
+    values.columns.name = ''
 
     has_two_runs = d.index.get_level_values(0).nunique() == 2
     if has_two_runs:
@@ -113,14 +128,11 @@ def add_diff_column(d, absolute_diff=False):
         values1 = values.max(axis=1)
 
     # Quotient or absolute difference?
-    if absolute_diff:
-        values['diff'] = values1 - values0
-    else:
+    if add_delta:
+        values['delta'] = values1 - values0
+    if add_diff:
         values['diff'] = values1 / values0
         values['diff'] -= 1.0
-    # unstack() gave us a complicated multiindex for the columns, simplify
-    # things by renaming to a simple index.
-    values.columns = [(c[1] if c[1] else c[0]) for c in values.columns.values]
     return values
 
 def filter_failed(data, key='Exec'):
@@ -174,27 +186,46 @@ def determine_common_prefix_suffix(names, min_len=8):
             suffix_len -= 1
             suffix = name0[-suffix_len:]
 
-    if suffix[0] != '.' and suffix[0] != '_':
+    # Only drop suffixes starting with '.' or '_'
+    if len(suffix) > 0 and suffix[0] not in ['.', '_']:
         suffix_len = 0
-    suffix_len = max(0, min(shortest_name - prefix_len - min_len, suffix_len))
-    prefix_len = max(0, min(shortest_name - suffix_len, prefix_len))
+    # Only drop prefixes ending in '/' or whitespace
+    if len(prefix) > 0 and prefix[-1] not in [' ', ':', '/', '\t']:
+        prefix_len = 0
     return (prefix_len, suffix_len)
 
-def format_diff(value):
-    if not isinstance(value, numbers.Integral):
-        return "%4.1f%%" % (value * 100.)
-    else:
-        return "%-5d" % value
+def describe_1d(data):
+    stats = [
+        ('count', data.count()),
+        ('sum', data.sum()),
+        ('mean', data.mean()),
+        ('std', data.std()),
+        ('min', data.min()),
+        ('25%', data.quantile(0.25)),
+        ('50%', data.quantile(0.5)),
+        ('75%', data.quantile(0.75)),
+        ('max', data.max()),
+    ]
+    indices = [name for name,d in stats]
+    summarydata = [d for name, d in stats]
+    return pd.Series(summarydata, index=indices, name=data.name)
 
-def print_result(d, limit_output=True, shorten_names=True,
-                 show_diff_column=True, sortkey='diff'):
-    # sort (TODO: is there a more elegant way than create+drop a column?)
-    d['$sortkey'] = d[sortkey].abs()
-    d = d.sort_values("$sortkey", ascending=False)
-    del d['$sortkey']
-    if not show_diff_column:
-        del d['diff']
-    dataout = d
+def describe(data):
+    '''This is a custom version of pandas Series.describe(), so we can customize
+    which aggregations are actually displayed.'''
+    ldesc = [describe_1d(s) for _, s in data.iteritems()]
+    names = []
+    ldesc_indexes = sorted([x.index for x in ldesc], key=len)
+    for idxnames in ldesc_indexes:
+        for name in idxnames:
+            if name not in names:
+                names.append(name)
+    result = pd.concat(ldesc, join_axes=pd.Index([names]), axis=1)
+    result.columns = data.columns.copy()
+    return result
+
+def print_result(d, limit_output, shorten_names):
+    dataout = d.copy()
     if limit_output:
         # Take 15 topmost elements
         dataout = dataout.head(15)
@@ -203,8 +234,10 @@ def print_result(d, limit_output=True, shorten_names=True,
     index_name = dataout.index.name
     dataout.insert(0, index_name, dataout.index)
 
+    float_format = lambda x: "{:6.2f}".format(x)
     formatters = dict()
-    formatters['diff'] = format_diff
+    formatters['diff']  = lambda x: "{:6.1%}".format(x)
+    formatters['delta'] = lambda x: "{:7d}".format(x)
     if shorten_names:
         drop_prefix, drop_suffix = determine_common_prefix_suffix(dataout[index_name])
         def format_name(name, common_prefix, common_suffix):
@@ -214,12 +247,35 @@ def print_result(d, limit_output=True, shorten_names=True,
             return "%-45s" % truncate(name, 10, 30)
 
         formatters[index_name] = lambda name: format_name(name, drop_prefix, drop_suffix)
-    float_format = lambda x: "%6.2f" % (x,)
     pd.set_option("display.max_colwidth", 0)
     out = dataout.to_string(index=False, justify='left',
                             float_format=float_format, formatters=formatters)
     print out
-    print d.describe()
+    print ""
+    described = describe(d)
+    float_format = lambda x: "{: 12.2f}".format(x)
+    print described.to_string(float_format=float_format)
+
+
+def sort_data(data):
+    if 'diff' in data.columns:
+        sortkey = 'diff'
+    elif 'delta' in data.columns:
+        sortkey = 'delta'
+    else:
+        sortkey = data.columns[0]
+
+    data['$sortkey'] = data[sortkey].abs()
+    data.sort_values("$sortkey", ascending=False, inplace=True)
+    del data['$sortkey']
+
+
+def print_available_metrics(data):
+    sys.stderr.write("Available metrics:\n")
+    for column in data.columns:
+        sys.stderr.write("\t%s\n" % column)
+    sys.exit(1)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='compare.py')
@@ -227,9 +283,10 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--full', action='store_true')
     parser.add_argument('-m', '--metric', action='append', dest='metrics',
                         default=[])
-    parser.add_argument('--nodiff', action='store_false', dest='show_diff',
+    parser.add_argument('--no-diff', action='store_false', dest='show_diff',
                         default=None)
     parser.add_argument('--diff', action='store_true', dest='show_diff')
+    parser.add_argument('--delta', action='store_true', dest='show_delta')
     parser.add_argument('--filter-short', action='store_true',
                         dest='filter_short')
     parser.add_argument('--no-filter-failed', action='store_false',
@@ -269,28 +326,6 @@ if __name__ == "__main__":
     else:
         data = readmulti(files)
 
-    # Decide which metric to display / what is our "main" metric
-    metrics = config.metrics
-    if len(metrics) == 0:
-        defaults = [ 'Exec_Time', 'exec_time', 'Value', 'Runtime' ]
-        for defkey in defaults:
-            if defkey in data.columns:
-                metrics = [defkey]
-                break
-    if len(metrics) == 0:
-        sys.stderr.write("No default metric found and none specified\n")
-        sys.stderr.write("Available metrics:\n")
-        for column in data.columns:
-            sys.stderr.write("\t%s\n" % column)
-        sys.exit(1)
-    for metric in metrics:
-        problem = False
-        if metric not in data.columns:
-            sys.stderr.write("Unknown metric '%s'\n" % metric)
-            problem = True
-        if problem:
-            sys.exit(1)
-
     # Filter data
     proggroup = data.groupby(level=1)
     initial_size = len(proggroup.indices)
@@ -319,18 +354,37 @@ if __name__ == "__main__":
     if final_size != initial_size:
         print "Remaining: %d" % (final_size,)
 
-    # Reduce / add columns
-    print "Metric: %s" % (",".join(metrics),)
-    if len(metrics) > 0:
-        data = data[metrics]
-    data = add_diff_column(data)
+    # Reduce: Decide which metric to display / what is our "main" metric
+    metrics = config.metrics
+    if len(config.files) >= 2:
+        # We need a metric for comparisons try to pick one
+        if len(metrics) == 0:
+            defaults = [ 'Exec_Time', 'exec_time', 'Value', 'Runtime' ]
+            for defkey in defaults:
+                if defkey in data.columns:
+                    metrics = [defkey]
+                    break
+        if len(metrics) == 0:
+            sys.stderr.write("No default metric found and none specified\n")
+            print_available_metrics(data)
+    for metric in metrics:
+        if metric not in data.columns:
+            sys.stderr.write("Unknown metric '%s'\n" % metric)
+            print_available_metrics(data)
 
-    sortkey = 'diff'
-    if len(config.files) == 1:
-        sortkey = data.columns[0]
+        print "Metric: %s" % (",".join(metrics),)
+        if len(metrics) > 0:
+            data = data[metrics]
+
+    # Analyse: Add diff column
+    data = add_diff_columns(data, add_diff=config.show_diff,
+                            add_delta=config.show_delta)
+
+    # Sort
+    sort_data(data)
 
     # Print data
     print ""
     shorten_names = not config.full
     limit_output = (not config.all) and (not config.full)
-    print_result(data, limit_output, shorten_names, config.show_diff, sortkey)
+    print_result(data, limit_output, shorten_names)
