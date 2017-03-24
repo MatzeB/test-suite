@@ -56,7 +56,7 @@ def read_lit_json(filename):
             if index is not None:
                 datarow[index] = test[name]
         data.append(datarow)
-    index = pd.Index(testnames, name='Program')
+    index = pd.Index(testnames, name='Test')
     return pd.DataFrame(data=data, index=index, columns=columns)
 
 def read_report_simple_csv(filename):
@@ -200,19 +200,20 @@ def print_result(d, limit_output=True, shorten_names=True,
         dataout = dataout.head(15)
 
     # Turn index into a column so we can format it...
-    dataout.insert(0, 'Program', dataout.index)
+    index_name = dataout.index.name
+    dataout.insert(0, index_name, dataout.index)
 
     formatters = dict()
     formatters['diff'] = format_diff
     if shorten_names:
-        drop_prefix, drop_suffix = determine_common_prefix_suffix(dataout.Program)
+        drop_prefix, drop_suffix = determine_common_prefix_suffix(dataout[index_name])
         def format_name(name, common_prefix, common_suffix):
             name = name[common_prefix:]
             if common_suffix > 0:
                 name = name[:-common_suffix]
             return "%-45s" % truncate(name, 10, 30)
 
-        formatters['Program'] = lambda name: format_name(name, drop_prefix, drop_suffix)
+        formatters[index_name] = lambda name: format_name(name, drop_prefix, drop_suffix)
     float_format = lambda x: "%6.2f" % (x,)
     pd.set_option("display.max_colwidth", 0)
     out = dataout.to_string(index=False, justify='left',
