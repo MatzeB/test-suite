@@ -289,7 +289,7 @@ if __name__ == "__main__":
     if len(metrics) == 0:
         sys.stderr.write("No default metric found and none specified\n")
         sys.stderr.write("Available metrics:\n")
-        for column in data.columns:
+        for column in sorted(data.columns):
             sys.stderr.write("\t%s\n" % column)
         sys.exit(1)
     for metric in metrics:
