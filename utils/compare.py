@@ -1,20 +1,20 @@
 #!/usr/bin/env python2.7
 """Tool to filter, organize, compare and display benchmarking results. Usefull
-for smaller datasets. It works great with a few dozen runs it is not designed to
-deal with hundreds.
+for smaller datasets. It works great with a few dozen runs.
 Requires the pandas library to be installed."""
 from __future__ import print_function
-import pandas as pd
-import sys
-import os.path
-import re
-import numbers
 import argparse
+import json
+import numbers
+import os.path
+import pandas as pd
+import re
+import sys
 
-VERBOSE=True
+VERBOSE = True
 
-def read_lit_json(filename):
-    import json
+
+def _read_lit_json(filename):
     jsondata = json.load(open(filename))
     columns = []
     columnindexes = {}
@@ -67,26 +67,29 @@ def read_lit_json(filename):
     index = pd.Index(testnames, name='Program')
     return pd.DataFrame(data=data, index=index, columns=columns)
 
-def read_report_simple_csv(filename):
+
+def _read_report_simple_csv(filename):
     return pd.read_csv(filename, na_values=['*'], index_col=0, header=0)
 
-def read(name):
-    if name.endswith(".json"):
-        return read_lit_json(name)
-    if name.endswith(".csv"):
-        return read_report_simple_csv(name)
-    raise Exception("Cannot determine file format");
 
-def readmulti(filenames):
+def _read(name):
+    if name.endswith(".json"):
+        return _read_lit_json(name)
+    if name.endswith(".csv"):
+        return _read_report_simple_csv(name)
+    raise Exception("Cannot determine file format")
+
+
+def _readmulti(filenames):
     # Read datasets
     datasetnames = []
     datasets = []
     prev_index = None
     for filename in filenames:
-        data = read(filename)
+        data = _read(filename)
         name = os.path.basename(filename)
-        # drop .json/.csv suffix; TODO: Should we rather do this in the printing
-        # logic?
+        # drop .json/.csv suffix; TODO: Should we rather do this in the
+        # printing logic?
         for ext in ['.csv', '.json']:
             if name.endswith(ext):
                 name = name[:-len(ext)]
@@ -97,7 +100,7 @@ def readmulti(filenames):
             if name+suffix not in datasetnames:
                 break
             suffix = str(count)
-            count +=1
+            count += 1
 
         datasetnames.append(name+suffix)
         # Warn if index names are different
@@ -109,13 +112,14 @@ def readmulti(filenames):
     d = pd.concat(datasets, axis=0, names=['run'], keys=datasetnames)
     return d
 
-def add_diff_column(d, absolute_diff=False):
+
+def _add_diff_column(d, absolute_diff=False):
     values = d.unstack(level=0)
 
     has_two_runs = d.index.get_level_values(0).nunique() == 2
     if has_two_runs:
-        values0 = values.iloc[:,0]
-        values1 = values.iloc[:,1]
+        values0 = values.iloc[:, 0]
+        values1 = values.iloc[:, 1]
     else:
         values0 = values.min(axis=1)
         values1 = values.max(axis=1)
@@ -131,41 +135,48 @@ def add_diff_column(d, absolute_diff=False):
     values.columns = [(c[1] if c[1] else c[0]) for c in values.columns.values]
     return values
 
-def filter_failed(data, key='Exec'):
+
+def _filter_failed(data, key='Exec'):
     return data.loc[data[key] == "pass"]
 
-def filter_short(data, key='Exec_Time', threshold=0.6):
+
+def _filter_short(data, key='Exec_Time', threshold=0.6):
     return data.loc[data[key] >= threshold]
 
-def filter_same_hash(data, key='hash'):
+
+def _filter_same_hash(data, key='hash'):
     assert key in data.columns
     assert data.index.get_level_values(0).nunique() > 1
 
     return data.groupby(level=1).filter(lambda x: x[key].nunique() != 1)
 
-def filter_blacklist(data, blacklist):
+
+def _filter_blacklist(data, blacklist):
     return data.loc[~(data.index.get_level_values(1).isin(blacklist))]
 
-def print_filter_stats(reason, before, after):
+
+def _print_filter_stats(reason, before, after):
     n_before = len(before.groupby(level=1))
     n_after = len(after.groupby(level=1))
     n_filtered = n_before - n_after
     if VERBOSE and n_filtered != 0:
         print("%s: %s (filtered out)" % (reason, n_filtered))
 
+
 # Truncate a string to a maximum length by keeping a prefix, a suffix and ...
 # in the middle
-def truncate(string, prefix_len, suffix_len):
+def _truncate(string, prefix_len, suffix_len):
     return re.sub("^(.{%d}).*(.{%d})$" % (prefix_len, suffix_len),
                   "\g<1>...\g<2>", string)
+
 
 # Search for common prefixes and suffixes in a list of names and return
 # a (prefix,suffix) tuple that specifies how many characters can be dropped
 # for the prefix/suffix. The numbers will be small enough that no name will
 # become shorter than min_len characters.
-def determine_common_prefix_suffix(names, min_len=8):
+def _determine_common_prefix_suffix(names, min_len=8):
     if len(names) <= 1:
-        return (0,0)
+        return (0, 0)
     name0 = names[0]
     prefix = name0
     prefix_len = len(name0)
@@ -188,14 +199,16 @@ def determine_common_prefix_suffix(names, min_len=8):
     prefix_len = max(0, min(shortest_name - suffix_len, prefix_len))
     return (prefix_len, suffix_len)
 
-def format_diff(value):
+
+def _format_diff(value):
     if not isinstance(value, numbers.Integral):
         return "%4.1f%%" % (value * 100.)
     else:
         return "%-5d" % value
 
-def print_result(d, limit_output=True, shorten_names=True,
-                 show_diff_column=True, sortkey='diff'):
+
+def _print_result(d, limit_output=True, shorten_names=True,
+                  show_diff_column=True, sortkey='diff'):
     # sort (TODO: is there a more elegant way than create+drop a column?)
     d['$sortkey'] = d[sortkey].abs()
     d = d.sort_values("$sortkey", ascending=False)
@@ -211,22 +224,28 @@ def print_result(d, limit_output=True, shorten_names=True,
     dataout.insert(0, 'Program', dataout.index)
 
     formatters = dict()
-    formatters['diff'] = format_diff
+    formatters['diff'] = _format_diff
     if shorten_names:
-        drop_prefix, drop_suffix = determine_common_prefix_suffix(dataout.Program)
+        drop_prefix, drop_suffix = \
+                _determine_common_prefix_suffix(dataout.Program)
+
         def format_name(name, common_prefix, common_suffix):
             name = name[common_prefix:]
             if common_suffix > 0:
                 name = name[:-common_suffix]
-            return "%-45s" % truncate(name, 10, 30)
+            return "%-45s" % _truncate(name, 10, 30)
 
-        formatters['Program'] = lambda name: format_name(name, drop_prefix, drop_suffix)
-    float_format = lambda x: "%6.2f" % (x,)
+        formatters['Program'] = lambda name: format_name(name, drop_prefix,
+                                                         drop_suffix)
+
+    def float_format(x):
+        return "%6.2f" % x
     pd.set_option("display.max_colwidth", 0)
     out = dataout.to_string(index=False, justify='left',
                             float_format=float_format, formatters=formatters)
     print(out)
     print(d.describe())
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='compare.py')
@@ -270,21 +289,21 @@ if __name__ == "__main__":
         rhs = files[split+1:]
 
         # Filter minimum of lhs and rhs
-        lhs_d = readmulti(lhs)
+        lhs_d = _readmulti(lhs)
         lhs_merged = config.merge_function(lhs_d, level=1)
-        rhs_d = readmulti(rhs)
+        rhs_d = _readmulti(rhs)
         rhs_merged = config.merge_function(rhs_d, level=1)
 
         # Combine to new dataframe
         data = pd.concat([lhs_merged, rhs_merged], names=['l/r'],
                          keys=[config.lhs_name, config.rhs_name])
     else:
-        data = readmulti(files)
+        data = _readmulti(files)
 
     # Decide which metric to display / what is our "main" metric
     metrics = config.metrics
     if len(metrics) == 0:
-        defaults = [ 'Exec_Time', 'exec_time', 'Value', 'Runtime' ]
+        defaults = ['Exec_Time', 'exec_time', 'Value', 'Runtime']
         for defkey in defaults:
             if defkey in data.columns:
                 metrics = [defkey]
@@ -309,24 +328,24 @@ if __name__ == "__main__":
     if VERBOSE:
         print("Tests: %s" % (initial_size,))
     if config.filter_failed and hasattr(data, 'Exec'):
-        newdata = filter_failed(data)
-        print_filter_stats("Failed", data, newdata)
+        newdata = _filter_failed(data)
+        _print_filter_stats("Failed", data, newdata)
         newdata = newdata.drop('Exec', 1)
         data = newdata
     if config.filter_short:
-        newdata = filter_short(data, metric)
-        print_filter_stats("Short Running", data, newdata)
+        newdata = _filter_short(data, metric)
+        _print_filter_stats("Short Running", data, newdata)
         data = newdata
     if config.filter_hash and 'hash' in data.columns and \
-       data.index.get_level_values(0).nunique() > 1:
-        newdata = filter_same_hash(data)
-        print_filter_stats("Same hash", data, newdata)
+            data.index.get_level_values(0).nunique() > 1:
+        newdata = _filter_same_hash(data)
+        _print_filter_stats("Same hash", data, newdata)
         data = newdata
     if config.filter_blacklist:
         blacklist = open(config.filter_blacklist).readlines()
         blacklist = [line.strip() for line in blacklist]
-        newdata = filter_blacklist(data, blacklist)
-        print_filter_stats("In Blacklist", data, newdata)
+        newdata = _filter_blacklist(data, blacklist)
+        _print_filter_stats("In Blacklist", data, newdata)
         data = newdata
     final_size = len(data.groupby(level=1))
     if VERBOSE and final_size != initial_size:
@@ -337,7 +356,7 @@ if __name__ == "__main__":
         print("Metric: %s" % (",".join(metrics),))
     if len(metrics) > 0:
         data = data[metrics]
-    data = add_diff_column(data)
+    data = _add_diff_column(data)
 
     sortkey = 'diff'
     if len(config.files) == 1:
@@ -348,4 +367,4 @@ if __name__ == "__main__":
         print("")
     shorten_names = not config.full
     limit_output = (not config.all) and (not config.full)
-    print_result(data, limit_output, shorten_names, config.show_diff, sortkey)
+    _print_result(data, limit_output, shorten_names, config.show_diff, sortkey)
