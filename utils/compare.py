@@ -3,12 +3,15 @@
 for smaller datasets. It works great with a few dozen runs it is not designed to
 deal with hundreds.
 Requires the pandas library to be installed."""
+from __future__ import print_function
 import pandas as pd
 import sys
 import os.path
 import re
 import numbers
 import argparse
+
+VERBOSE=True
 
 def read_lit_json(filename):
     import json
@@ -19,7 +22,7 @@ def read_lit_json(filename):
     info_columns = ['hash']
     # Pass1: Figure out metrics (= the column index)
     if 'tests' not in jsondata:
-        print "%s: Could not find toplevel 'tests' key"
+        sys.stderr.write("%s: Could not find toplevel 'tests' key\n")
         sys.exit(1)
     for test in jsondata['tests']:
         name = test.get("name")
@@ -31,7 +34,7 @@ def read_lit_json(filename):
             sys.exit(1)
         names.add(name)
         if "metrics" not in test:
-            print "Warning: '%s' has No metrics!" % test['name']
+            sys.stderr.write("Warning: '%s' has No metrics!\n" % name)
             continue
         for name in test["metrics"].keys():
             if name not in columnindexes:
@@ -147,8 +150,8 @@ def print_filter_stats(reason, before, after):
     n_before = len(before.groupby(level=1))
     n_after = len(after.groupby(level=1))
     n_filtered = n_before - n_after
-    if n_filtered != 0:
-        print "%s: %s (filtered out)" % (reason, n_filtered)
+    if VERBOSE and n_filtered != 0:
+        print("%s: %s (filtered out)" % (reason, n_filtered))
 
 # Truncate a string to a maximum length by keeping a prefix, a suffix and ...
 # in the middle
@@ -222,8 +225,8 @@ def print_result(d, limit_output=True, shorten_names=True,
     pd.set_option("display.max_colwidth", 0)
     out = dataout.to_string(index=False, justify='left',
                             float_format=float_format, formatters=formatters)
-    print out
-    print d.describe()
+    print(out)
+    print(d.describe())
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='compare.py')
@@ -303,7 +306,8 @@ if __name__ == "__main__":
     # Filter data
     proggroup = data.groupby(level=1)
     initial_size = len(proggroup.indices)
-    print "Tests: %s" % (initial_size,)
+    if VERBOSE:
+        print("Tests: %s" % (initial_size,))
     if config.filter_failed and hasattr(data, 'Exec'):
         newdata = filter_failed(data)
         print_filter_stats("Failed", data, newdata)
@@ -325,11 +329,12 @@ if __name__ == "__main__":
         print_filter_stats("In Blacklist", data, newdata)
         data = newdata
     final_size = len(data.groupby(level=1))
-    if final_size != initial_size:
-        print "Remaining: %d" % (final_size,)
+    if VERBOSE and final_size != initial_size:
+        print("Remaining: %d" % (final_size,))
 
     # Reduce / add columns
-    print "Metric: %s" % (",".join(metrics),)
+    if VERBOSE:
+        print("Metric: %s" % (",".join(metrics),))
     if len(metrics) > 0:
         data = data[metrics]
     data = add_diff_column(data)
@@ -339,7 +344,8 @@ if __name__ == "__main__":
         sortkey = data.columns[0]
 
     # Print data
-    print ""
+    if VERBOSE:
+        print("")
     shorten_names = not config.full
     limit_output = (not config.all) and (not config.full)
     print_result(data, limit_output, shorten_names, config.show_diff, sortkey)
