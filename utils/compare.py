@@ -1,10 +1,12 @@
 #!/usr/bin/env python2.7
+# coding: utf-8
 """Tool to filter, organize, compare and display benchmarking results. Usefull
 for smaller datasets. It works great with a few dozen runs.
 Requires the pandas library to be installed."""
 from __future__ import print_function
 import argparse
 import json
+import math
 import numbers
 import os.path
 import pandas as pd
@@ -64,8 +66,9 @@ def _read_lit_json(filename):
             if index is not None:
                 datarow[index] = test[name]
         data.append(datarow)
-    index = pd.Index(testnames, name='Program')
-    return pd.DataFrame(data=data, index=index, columns=columns)
+    row_index = pd.Index(testnames, name='Program')
+    column_index = pd.Index(columns, name='Metric')
+    return pd.DataFrame(data=data, index=row_index, columns=column_index)
 
 
 def _read_report_simple_csv(filename):
@@ -109,31 +112,35 @@ def _readmulti(filenames):
                              % (prev_index.name, data.index.name))
         prev_index = data.index
     # Merge datasets
-    d = pd.concat(datasets, axis=0, names=['run'], keys=datasetnames)
-    return d
+    row_index_name = datasets[0].index.name
+    data = pd.concat(datasets, axis=1, names=['File'], keys=datasetnames,
+                     sort=True)
+    data.index.name = row_index_name
+    return data
 
 
-def _add_diff_column(d, absolute_diff=False):
-    values = d.unstack(level=0)
+def _add_diff_column(data, absolute_diff=False):
+    files = data.columns.get_level_values('File').drop_duplicates()
+    if len(files) <= 1:
+        return data
 
-    has_two_runs = d.index.get_level_values(0).nunique() == 2
-    if has_two_runs:
-        values0 = values.iloc[:, 0]
-        values1 = values.iloc[:, 1]
-    else:
-        values0 = values.min(axis=1)
-        values1 = values.max(axis=1)
+    metrics = data.columns.get_level_values('Metric').drop_duplicates()
+    for metric in metrics:
+        if len(files) == 2:
+            values0 = data[(files[0], metric)]
+            values1 = data[(files[1], metric)]
+        else:
+            values0 = data.min(axis=1)
+            values1 = data.max(axis=1)
 
-    # Quotient or absolute difference?
-    if absolute_diff:
-        values['diff'] = values1 - values0
-    else:
-        values['diff'] = values1 / values0
-        values['diff'] -= 1.0
-    # unstack() gave us a complicated multiindex for the columns, simplify
-    # things by renaming to a simple index.
-    values.columns = [(c[1] if c[1] else c[0]) for c in values.columns.values]
-    return values
+        # Quotient or absolute difference?
+        column_name = (u"", u"Δ %s" % metric)
+        if absolute_diff:
+            data[column_name] = values1 - values0
+        else:
+            data[column_name] = values1 / values0
+            data[column_name] -= 1.0
+    return data
 
 
 def _filter_failed(data, key='Exec'):
@@ -201,50 +208,54 @@ def _determine_common_prefix_suffix(names, min_len=8):
 
 
 def _format_diff(value):
+    if math.isnan(value):
+        return ""
     if not isinstance(value, numbers.Integral):
         return "%4.1f%%" % (value * 100.)
     else:
         return "%-5d" % value
 
 
-def _print_result(d, limit_output=True, shorten_names=True,
-                  show_diff_column=True, sortkey='diff'):
+def _sort_data(data, sortkey='diff'):
     # sort (TODO: is there a more elegant way than create+drop a column?)
-    d['$sortkey'] = d[sortkey].abs()
-    d = d.sort_values("$sortkey", ascending=False)
-    del d['$sortkey']
-    if not show_diff_column:
-        del d['diff']
-    dataout = d
-    if limit_output:
-        # Take 15 topmost elements
-        dataout = dataout.head(15)
+    data['$sortkey'] = data[sortkey].abs()
+    data = data.sort_values("$sortkey", ascending=False)
+    del data['$sortkey']
+    return data
 
-    # Turn index into a column so we can format it...
-    dataout.insert(0, 'Program', dataout.index)
+
+def _print_result(data, limit_output, shorten_names):
+    printdata = data
+    if limit_output:
+        printdata = printdata.head(limit_output)
 
     formatters = dict()
-    formatters['diff'] = _format_diff
     if shorten_names:
         drop_prefix, drop_suffix = \
-                _determine_common_prefix_suffix(dataout.Program)
+                _determine_common_prefix_suffix(printdata.index)
 
-        def format_name(name, common_prefix, common_suffix):
+        def format_index(name, common_prefix, common_suffix):
             name = name[common_prefix:]
             if common_suffix > 0:
                 name = name[:-common_suffix]
-            return "%-45s" % _truncate(name, 10, 30)
+            return _truncate(name, 10, 30)
 
-        formatters['Program'] = lambda name: format_name(name, drop_prefix,
-                                                         drop_suffix)
+        formatters['__index__'] = lambda name: format_index(name, drop_prefix,
+                                                            drop_suffix)
+    for n in data.columns:
+        if n[1].startswith(u'Δ'):
+            formatters[n] = _format_diff
 
     def float_format(x):
+        if math.isnan(x):
+            return ""
         return "%6.2f" % x
-    pd.set_option("display.max_colwidth", 0)
-    out = dataout.to_string(index=False, justify='left',
-                            float_format=float_format, formatters=formatters)
+    out = printdata.to_string(justify='right',
+                              float_format=float_format, formatters=formatters)
     print(out)
-    print(d.describe())
+    print("")
+    print(data.describe().to_string(header=False, justify='right',
+                                    na_rep=''))
 
 
 if __name__ == "__main__":
@@ -253,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--full', action='store_true')
     parser.add_argument('-m', '--metric', action='append', dest='metrics',
                         default=[])
+    parser.add_argument('--all-metrics', action='store_true')
     parser.add_argument('--nodiff', action='store_false', dest='show_diff',
                         default=None)
     parser.add_argument('--diff', action='store_true', dest='show_diff')
@@ -275,8 +287,12 @@ if __name__ == "__main__":
                         help="Name used to describe left side in 'vs' mode")
     parser.add_argument('--rhs-name', default="rhs",
                         help="Name used to describe right side in 'vs' mode")
+    parser.add_argument('--csv', action='store_true')
     parser.add_argument('files', metavar='FILE', nargs='+')
     config = parser.parse_args()
+
+    if config.csv:
+        VERBOSE = False
 
     if config.show_diff is None:
         config.show_diff = len(config.files) > 1
@@ -301,30 +317,33 @@ if __name__ == "__main__":
         data = _readmulti(files)
 
     # Decide which metric to display / what is our "main" metric
-    metrics = config.metrics
-    if len(metrics) == 0:
-        defaults = ['Exec_Time', 'exec_time', 'Value', 'Runtime']
-        for defkey in defaults:
-            if defkey in data.columns:
-                metrics = [defkey]
-                break
-    if len(metrics) == 0:
-        sys.stderr.write("No default metric found and none specified\n")
-        sys.stderr.write("Available metrics:\n")
-        for column in sorted(data.columns):
-            sys.stderr.write("\t%s\n" % column)
-        sys.exit(1)
-    for metric in metrics:
-        problem = False
-        if metric not in data.columns:
-            sys.stderr.write("Unknown metric '%s'\n" % metric)
-            problem = True
-        if problem:
+    metrics = None
+    if not config.all_metrics:
+        metrics = config.metrics
+        if len(metrics) == 0:
+            defaults = ['Exec_Time', 'exec_time', 'Value', 'Runtime']
+            for defkey in defaults:
+                if defkey in data.columns:
+                    metrics = [defkey]
+                    break
+        if len(metrics) == 0:
+            sys.stderr.write("No default metric found and none specified\n")
+            sys.stderr.write("Available metrics:\n")
+            all_metrics = (data.columns.get_level_values('Metric')
+                           .drop_duplicates())
+            for column in sorted(all_metrics):
+                sys.stderr.write("\t%s\n" % (column,))
             sys.exit(1)
+        for metric in metrics:
+            problem = False
+            if metric not in data.columns.get_level_values('Metric'):
+                sys.stderr.write("Unknown metric '%s'\n" % metric)
+                problem = True
+            if problem:
+                sys.exit(1)
 
     # Filter data
-    proggroup = data.groupby(level=1)
-    initial_size = len(proggroup.indices)
+    initial_size = len(data)
     if VERBOSE:
         print("Tests: %s" % (initial_size,))
     if config.filter_failed and hasattr(data, 'Exec'):
@@ -347,24 +366,37 @@ if __name__ == "__main__":
         newdata = _filter_blacklist(data, blacklist)
         _print_filter_stats("In Blacklist", data, newdata)
         data = newdata
-    final_size = len(data.groupby(level=1))
+    final_size = len(data)
     if VERBOSE and final_size != initial_size:
         print("Remaining: %d" % (final_size,))
 
     # Reduce / add columns
-    if VERBOSE:
-        print("Metric: %s" % (",".join(metrics),))
-    if len(metrics) > 0:
-        data = data[metrics]
+    if metrics:
+        if VERBOSE:
+            print("Picked Metrics: %s" % (", ".join(metrics),))
+        data = data.loc[:, pd.IndexSlice[:, metrics]]
+
     data = _add_diff_column(data)
 
-    sortkey = 'diff'
-    if len(config.files) == 1:
-        sortkey = data.columns[0]
+    #sortkey = 'diff'
+    #if len(config.files) == 1:
+    #    sortkey = data.columns[0]
+    #data = _sort_data(data, sortkey)
+
+    #if not config.show_diff:
+    #    del data['diff']
+
+    if len(data.columns.get_level_values('File').drop_duplicates()) < 2:
+        data.columns = data.columns.droplevel('File')
 
     # Print data
-    if VERBOSE:
-        print("")
-    shorten_names = not config.full
-    limit_output = (not config.all) and (not config.full)
-    _print_result(data, limit_output, shorten_names, config.show_diff, sortkey)
+    if config.csv:
+        data.to_csv(sys.stdout)
+    else:
+        if VERBOSE:
+            print("")
+        shorten_names = not config.full
+        limit_output = 15
+        if config.all or config.full:
+            limit_output = None
+        _print_result(data, limit_output, shorten_names)
