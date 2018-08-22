@@ -1,0 +1,52 @@
+RUN: tail -n +2 %s | head -n 31 > %t && ../lntsubmit -Mname=JustATestMachine -Illvm_project_revision=123456 %t | FileCheck %s
+{
+  "__version__": [
+    0,
+    6,
+    0
+  ],
+  "elapsed": 0.5209369659423828,
+  "tests": [
+    {
+      "code": "PASS",
+      "elapsed": 0.4605419635772705,
+      "metrics": {
+        "compile_time": 0.0221,
+        "exec_time": 0.406,
+        "hash": "549fc0d04911386004eaafbf6a36ba0d",
+        "link_time": 0.0329,
+        "size": 8512,
+        "size.__const": 40,
+        "size.__cstring": 97,
+        "size.__la_symbol_ptr": 16,
+        "size.__nl_symbol_ptr": 16,
+        "size.__stub_helper": 36,
+        "size.__stubs": 12,
+        "size.__text": 385,
+        "size.__unwind_info": 80
+      },
+      "name": "test-suite :: SingleSource/Benchmarks/Misc/pi.test",
+      "output": "\n/Users/johndoe/dev/test-suite/build/tools/timeit --limit-core 0 --limit-cpu 7200 --timeout 7200 --limit-file-size 104857600 --limit-rss-size 838860800 --append-exitstatus --redirect-output /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.out --redirect-input /dev/null --summary /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.time /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/pi\n/Users/johndoe/dev/test-suite/build/tools/fpcmp -r 0.001 /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.out /Users/johndoe/dev/test-suite/SingleSource/Benchmarks/Misc/pi.reference_output"
+    }
+  ]
+}
+CHECK: {
+CHECK-NEXT:   "format_version": "2",
+CHECK-NEXT:   "machine": {
+CHECK-NEXT:     "name": "JustATestMachine"
+CHECK-NEXT:   },
+CHECK-NEXT:   "run": {
+CHECK-NEXT:     "end_time": "{{[0-9]+-[0-9]+-[0-9]+T[0-9]+:[0-9]+:[0-9]+}}",
+CHECK-NEXT:     "llvm_project_revision": "123456",
+CHECK-NEXT:     "start_time": "{{[0-9]+-[0-9]+-[0-9]+T[0-9]+:[0-9]+:[0-9]+}}"
+CHECK-NEXT:   },
+CHECK-NEXT:   "tests": [
+CHECK-NEXT:     {
+CHECK-NEXT:       "code_size": 385.0,
+CHECK-NEXT:       "compile_time": 0.0221,
+CHECK-NEXT:       "execution_time": 0.406,
+CHECK-NEXT:       "hash": "549fc0d04911386004eaafbf6a36ba0d",
+CHECK-NEXT:       "name": "SingleSource/Benchmarks/Misc/pi"
+CHECK-NEXT:     }
+CHECK-NEXT:   ]
+CHECK-NEXT: }

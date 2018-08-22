@@ -1,0 +1,97 @@
+RUN: tail -n +2 %s | head -n 47 > %t-litdata.json && ../compilerinfo tools/notclang > %t-compilerinfo.json && ../lntsubmit -M name=JustATestMachine -I llvm_project_revision=654321 -i %t-compilerinfo.json -m testmachineinfo.json %t-litdata.json | FileCheck %s
+{
+  "__version__": [
+    0,
+    6,
+    0
+  ],
+  "elapsed": 0.5209369659423828,
+  "tests": [
+    {
+      "code": "PASS",
+      "elapsed": 0.4605419635772705,
+      "metrics": {
+        "compile_time": 0.0221,
+        "exec_time": 0.406,
+        "hash": "549fc0d04911386004eaafbf6a36ba0d",
+        "link_time": 0.0329,
+        "size": 8512,
+        "size.__const": 40,
+        "size.__cstring": 97,
+        "size.__la_symbol_ptr": 16,
+        "size.__nl_symbol_ptr": 16,
+        "size.__stub_helper": 36,
+        "size.__stubs": 12,
+        "size.__text": 385,
+        "size.__unwind_info": 80
+      },
+      "name": "test-suite :: SingleSource/Benchmarks/Misc/pi.test",
+      "output": "\n/Users/johndoe/dev/test-suite/build/tools/timeit --limit-core 0 --limit-cpu 7200 --timeout 7200 --limit-file-size 104857600 --limit-rss-size 838860800 --append-exitstatus --redirect-output /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.out --redirect-input /dev/null --summary /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.time /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/pi\n/Users/johndoe/dev/test-suite/build/tools/fpcmp -r 0.001 /Users/johndoe/dev/test-suite/build/SingleSource/Benchmarks/Misc/Output/pi.test.out /Users/johndoe/dev/test-suite/SingleSource/Benchmarks/Misc/pi.reference_output"
+    },
+    {
+      "code": "PASS",
+      "elapsed": 1.0,
+      "metrics": {
+      	"exec_time": 0.5
+      },
+      "name": "test-suite :: simple.test"
+    },
+    {
+      "code": "NOEXE",
+      "name": "test-suite :: doesnt_compile.test"
+    },
+    {
+      "code": "FAIL",
+      "name": "test-suite :: failed.test"
+    }
+  ]
+}
+CHECK: {
+CHECK-NEXT:   "format_version": "2",
+CHECK-NEXT:   "machine": {
+CHECK-NEXT:     "CPU": "i386",
+CHECK-NEXT:     "Memory": "640k",
+CHECK-NEXT:     "OS": "MS/DOS",
+CHECK-NEXT:     "name": "JustATestMachine"
+CHECK-NEXT:   },
+CHECK-NEXT:   "run": {
+CHECK-NEXT:     "cc_as_version": "",
+CHECK-NEXT:     "cc_build": "PROD",
+CHECK-NEXT:     "cc_dumpmachine": "",
+CHECK-NEXT:     "cc_exec_hash": "736fbf49b4b4ac89a9f2e78e54529dd8369629f2",
+CHECK-NEXT:     "cc_ld_version": "",
+CHECK-NEXT:     "cc_name": "clang",
+CHECK-NEXT:     "cc_src_branch": "notclang-123.4.56",
+CHECK-NEXT:     "cc_src_revision": "123456",
+CHECK-NEXT:     "cc_src_tag": "123.4.56",
+CHECK-NEXT:     "cc_target": "x86_64-unknown-unknown",
+CHECK-NEXT:     "cc_target_assembly": "; ModuleID = '/dev/null'\nsource_filename = \"/dev/null\"\ntarget datalayout = \"e-m:o-i64:64-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-unknown-unknown\"\n\n!llvm.module.flags = !{!0}\n!llvm.ident = !{!1}\n\n!0 = !{i32 1, !\"PIC Level\", i32 2}\n!1 = !{!\"LLVM version 1.2.3 (notclang-123.4.56)\"}",
+CHECK-NEXT:     "cc_version": "LLVM version 1.2.3 (notclang-123.4.56 123456)\nTarget: x86_64-unknown-unknown\nInstalledDir: tools\n \\\"tools/notclang\\\" -cc1 more flags -v -E -x c /dev/null -###",
+CHECK-NEXT:     "cc_version_number": "1.2.3",
+CHECK-NEXT:     "end_time": "{{[0-9]+-[0-9]+-[0-9]+T[0-9]+:[0-9]+:[0-9]+}}",
+CHECK-NEXT:     "llvm_project_revision": "654321",
+CHECK-NEXT:     "start_time": "{{[0-9]+-[0-9]+-[0-9]+T[0-9]+:[0-9]+:[0-9]+}}"
+CHECK-NEXT:   },
+CHECK-NEXT:   "tests": [
+CHECK-NEXT:     {
+CHECK-NEXT:       "code_size": 385.0,
+CHECK-NEXT:       "compile_time": 0.0221,
+CHECK-NEXT:       "execution_time": 0.406,
+CHECK-NEXT:       "hash": "549fc0d04911386004eaafbf6a36ba0d",
+CHECK-NEXT:       "name": "SingleSource/Benchmarks/Misc/pi"
+CHECK-NEXT:     },
+CHECK-NEXT:     {
+CHECK-NEXT:       "execution_time": 0.5,
+CHECK-NEXT:       "name": "simple"
+CHECK-NEXT:     },
+CHECK-NEXT:     {
+CHECK-NEXT:       "compile_status": 1,
+CHECK-NEXT:       "execution_status": 1,
+CHECK-NEXT:       "name": "doesnt_compile"
+CHECK-NEXT:     },
+CHECK-NEXT:     {
+CHECK-NEXT:       "execution_status": 1,
+CHECK-NEXT:       "name": "failed"
+CHECK-NEXT:     }
+CHECK-NEXT:   ]
+CHECK-NEXT: }

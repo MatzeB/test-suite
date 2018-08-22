@@ -265,6 +265,17 @@ endif()
 # Produce lit.site.cfg
 configure_file("${PROJECT_SOURCE_DIR}/lit.site.cfg.in" "${CMAKE_BINARY_DIR}/lit.site.cfg")
 
+# Produce lnt run info (mostly about the used compiler)
+option(TEST_SUITE_CREATE_RUNINFO
+       "Create compiler/run information suitable for LNT" On)
+if(TEST_SUITE_CREATE_RUNINFO)
+  message(STATUS "Creating compilerinfo.json")
+  execute_process(
+    COMMAND ${PROJECT_SOURCE_DIR}/utils/compilerinfo ${CMAKE_C_COMPILER}
+    OUTPUT_FILE ${PROJECT_BINARY_DIR}/compilerinfo.json
+  )
+endif()
+
 get_property(TEST_SUITE_TARGETS GLOBAL PROPERTY TEST_SUITE_TARGETS)
 add_custom_target(check
   COMMAND ${TEST_SUITE_LIT} ${TEST_SUITE_LIT_FLAGS} .

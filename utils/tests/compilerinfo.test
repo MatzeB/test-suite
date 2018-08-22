@@ -1,0 +1,17 @@
+RUN: ../compilerinfo tools/notclang | FileCheck %s
+CHECK: {
+CHECK-NEXT:     "cc_as_version": "", 
+CHECK-NEXT:     "cc_build": "PROD", 
+CHECK-NEXT:     "cc_dumpmachine": "", 
+CHECK-NEXT:     "cc_exec_hash": "736fbf49b4b4ac89a9f2e78e54529dd8369629f2",
+CHECK-NEXT:     "cc_ld_version": "", 
+CHECK-NEXT:     "cc_name": "clang", 
+CHECK-NEXT:     "cc_src_branch": "notclang-123.4.56", 
+CHECK-NEXT:     "cc_src_revision": "123456",
+CHECK-NEXT:     "cc_src_tag": "123.4.56", 
+CHECK-NEXT:     "cc_target": "x86_64-unknown-unknown", 
+CHECK-NEXT:     "cc_target_assembly": "; ModuleID = '/dev/null'\nsource_filename = \"/dev/null\"\ntarget datalayout = \"e-m:o-i64:64-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-unknown-unknown\"\n\n!llvm.module.flags = !{!0}\n!llvm.ident = !{!1}\n\n!0 = !{i32 1, !\"PIC Level\", i32 2}\n!1 = !{!\"LLVM version 1.2.3 (notclang-123.4.56)\"}", 
+CHECK-NEXT:     "cc_version": "LLVM version 1.2.3 (notclang-123.4.56 123456)\nTarget: x86_64-unknown-unknown\nInstalledDir: tools\n \\\"tools/notclang\\\" -cc1 more flags -v -E -x c /dev/null -###", 
+CHECK-NEXT:     "cc_version_number": "1.2.3", 
+CHECK-NEXT:     "llvm_project_revision": "123456"
+CHECK-NEXT: }

@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+'''Create a data file suitable for LNT submission.
+This takes the llvm-lit json output and optionally run and machine info files
+and creates a json file suitable for submission to an LNT server
+(or for `lnt import`).'''
+from datetime import datetime
+import argparse
+import json
+import sys
+import urllib
+import urllib2
+
+p = argparse.ArgumentParser()
+p.add_argument('litdata')
+p.add_argument('-i', '--run-info', default=[], action='append',
+               metavar='FILENAME',
+               help='json data to put into the run info section')
+p.add_argument('-m', '--machine-info', default=[], action='append',
+               metavar='FILENAME',
+               help='json data to put into machine info section')
+p.add_argument('-k', '--keep-names', default=False, action='store_true',
+               help='Use unmodified benchmark names')
+p.add_argument('-M', '--set-machine-info', default=[], action='append',
+               metavar='VAR=VALUE', help='Set machine info field VAR to VALUE')
+p.add_argument('-I', '--set-run-info', default=[], action='append',
+               metavar='VAR=VALUE', help='Set run info field VAR to VALUE')
+p.add_argument('-a', '--all-metrics', action='store_true',
+               help="Include all metrics in submission")
+p.add_argument('-s', '--submit-url', default=None,
+               help="Submit PUT request to jenkins server")
+config = p.parse_args()
+
+# Read machine info
+machine_info = dict()
+for machine_info_file in config.machine_info:
+    machine_info_data = json.load(open(machine_info_file))
+    machine_info.update(machine_info_data)
+for x in config.set_machine_info:
+    var, value = x.split("=")
+    machine_info[var] = value
+
+# Construct + read run info
+time_now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+run_info = {
+    "end_time": time_now,
+    "start_time": time_now,
+}
+for run_info_file in config.run_info:
+    run_info_data = json.load(open(run_info_file))
+    run_info.update(run_info_data)
+for x in config.set_run_info:
+    var, value = x.split('=')
+    run_info[var] = value
+
+# Load LIT Data
+lit_data = json.load(open(config.litdata))
+tests = lit_data.get('tests')
+if tests is None:
+    sys.stderr.write("Error: No tests in lit data\n")
+    sys.exit(1)
+
+tests_data = []
+for test in lit_data['tests']:
+    testname = test.get('name')
+    if testname is None:
+        sys.stderr.write("Warning: Skipping unnamed test\n")
+        continue
+    if not config.keep_names:
+        # Imitate LNTs name manipulation.
+        if "::" in testname:
+            suite_name, cc, test_name = testname.partition("::")
+            test_name = test_name.strip()
+            testname = test_name.rsplit('.test', 1)[0]
+    test_data = {
+        'name': testname,
+    }
+
+    failed = False
+    code = test.get('code')
+    if code in ('PASS', 'XFAIL', 'UNSUPPORTED', 'FLAKYPASS'):
+        pass
+    elif code == 'NOEXE':
+        test_data['compile_status'] = 1
+        test_data['execution_status'] = 1
+        failed = True
+    elif code in ('UNRESOLVED', 'TIMEOUT', 'FAIL', 'XPASS'):
+        test_data['execution_status'] = 1
+        failed = True
+
+    metrics = test.get('metrics')
+    if metrics is None:
+        if not failed:
+            sys.stderr.write("Warning: %s has no metrics\n" % testname)
+            continue
+    else:
+        lit_to_lnt_metrics = {
+            'compile_time': ('compile_time', float),
+            'exec_time': ('execution_time', float),
+            'score': ('score', float),
+            'hash': ('hash', str),
+            #'link_time': ('link_time', float),
+            'size.__text': ('code_size', float),
+        }
+        for metric, value in metrics.items():
+            lntname = metric
+            if metric in lit_to_lnt_metrics:
+                lntname, convert_func = lit_to_lnt_metrics[metric]
+                value = convert_func(value)
+            elif not config.all_metrics:
+                continue
+            assert lntname not in test_data
+            test_data[lntname] = value
+
+    tests_data.append(test_data)
+
+# Create final lnt import data structure
+result = {
+    "format_version": "2",
+    "machine": machine_info,
+    "run": run_info,
+    "tests": tests_data,
+}
+
+if not config.submit_url:
+    # Just write the resulting json to stdout
+    sys.stdout.write(json.dumps(result, indent=2, sort_keys=True))
+    sys.stdout.write("\n")
+else:
+    # Submit the resulting data to an LNT server.
+    jsondata = json.dumps(result, sort_keys=True)
+    postdata = {'input_data': json.dumps(result, sort_keys=True), 'commit': '1'}
+    data = urllib.urlencode(postdata)
+    try:
+        opener = urllib2.build_opener(urllib2.HTTPHandler)
+        response = urllib2.urlopen(config.submit_url, data=data)
+        responsedata = response.read()
+
+        try:
+            resultdata = json.loads(responsedata)
+            result_url = resultdata.get('result_url')
+            if result_url is not None:
+                sys.stdout.write("%s\n" % result_url)
+        except:
+            sys.stderr.write("Unexpected server response:\n" + responsedata)
+    except urllib2.HTTPError as e:
+        sys.stderr.write("PUT Request failed with code %s\n" % e.code)
+        sys.stderr.write("%s\n" % e.reason)
+        sys.exit(1)

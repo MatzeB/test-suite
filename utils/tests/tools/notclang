@@ -1,0 +1,22 @@
+#!/bin/sh
+if [ "$1" = "-v" ]; then
+	cat <<__EOF__
+LLVM version 1.2.3 (notclang-123.4.56 123456)
+Target: x86_64-unknown-unknown
+InstalledDir: $(dirname $0)
+ \"$0\" -cc1 more flags $@
+__EOF__
+elif [ "$1" = "-S" ]; then
+	cat <<__EOF__
+; ModuleID = '/dev/null'
+source_filename = "/dev/null"
+target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-unknown-unknown"
+
+!llvm.module.flags = !{!0}
+!llvm.ident = !{!1}
+
+!0 = !{i32 1, !"PIC Level", i32 2}
+!1 = !{!"LLVM version 1.2.3 (notclang-123.4.56)"}
+__EOF__
+fi
